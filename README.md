@@ -1,2 +1,3 @@
-# era_session9_minicapstone
-This repository holds the work on session 9 minicapstone project where we train a ResNet50 model from scratch.
+# ResNet-50 for ImageNet 1k
+
+This repository contains a minimal implementation of ResNet-50 for ImageNet 1k using PyTorch.
