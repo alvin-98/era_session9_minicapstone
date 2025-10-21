@@ -1,5 +1,5 @@
 # datastream/dataloader.py (non-streaming, on-the-fly transforms)
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from torchvision import transforms
 from datasets import load_dataset, Image as HFImage
 from PIL import Image
@@ -36,7 +36,7 @@ class HFDataset(Dataset):
         y = ex["label"]
         return {"pixel_values": x, "label": y}
 
-def build_dataloaders(dataset_name, img_size, batch_size, num_workers=8, seed=42):
+def build_dataloaders(dataset_name, img_size, batch_size, num_workers=8, seed=42, use_ddp=False):
     torch.manual_seed(seed)
 
     # Load cached splits (no streaming) and ensure PIL decoding
@@ -55,13 +55,34 @@ def build_dataloaders(dataset_name, img_size, batch_size, num_workers=8, seed=42
     train_ds = HFDataset(train_hf, tfm_train)
     val_ds   = HFDataset(val_hf,   tfm_val)
 
+    # Create samplers for DDP
+    train_sampler = None
+    val_sampler = None
+    if use_ddp:
+        train_sampler = DistributedSampler(train_ds, shuffle=True, seed=seed)
+        val_sampler = DistributedSampler(val_ds, shuffle=False)
+
     # DataLoaders: workers apply transforms per-sample on demand
     train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, drop_last=True,
-        num_workers=num_workers, pin_memory=True, prefetch_factor=2, persistent_workers=(num_workers>0)
+        train_ds, 
+        batch_size=batch_size, 
+        shuffle=(train_sampler is None),  # shuffle only if not using DistributedSampler
+        sampler=train_sampler,
+        drop_last=True,
+        num_workers=num_workers, 
+        pin_memory=True, 
+        prefetch_factor=2, 
+        persistent_workers=(num_workers>0)
     )
     val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, drop_last=False,
-        num_workers=num_workers, pin_memory=True, prefetch_factor=2, persistent_workers=(num_workers>0)
+        val_ds, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        sampler=val_sampler,
+        drop_last=False,
+        num_workers=num_workers, 
+        pin_memory=True, 
+        prefetch_factor=2, 
+        persistent_workers=(num_workers>0)
     )
     return train_loader, val_loader
